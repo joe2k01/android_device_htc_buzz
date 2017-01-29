@@ -1,0 +1,282 @@
+--- frameworks/base/services/surfaceflinger/Android.mk~	2011-11-11 16:09:15.000000000 +0100
++++ frameworks/base/services/surfaceflinger/Android.mk	2011-11-11 16:10:35.000000000 +0100
+@@ -27,6 +27,17 @@
+ 	LOCAL_CFLAGS += -DHAS_CONTEXT_PRIORITY
+ endif
+ 
++ifeq ($(BOARD_NO_RGBX_8888), true)
++	LOCAL_CFLAGS += -DNO_RGBX_8888
++endif
++
++ifeq ($(BOARD_HAS_LIMITED_EGL), true)
++	LOCAL_CFLAGS += -DHAS_LIMITED_EGL
++endif
++ 
++ifeq ($(BOARD_AVOID_DRAW_TEXTURE_EXTENSION), true)
++	LOCAL_CFLAGS += -DAVOID_DRAW_TEXTURE
++endif
+ 
+ # need "-lrt" on Linux simulator to pick up clock_gettime
+ ifeq ($(TARGET_SIMULATOR),true)
+--- frameworks/base/services/surfaceflinger/Layer.cpp~	2011-11-11 16:09:22.000000000 +0100
++++ frameworks/base/services/surfaceflinger/Layer.cpp	2011-11-11 16:10:35.000000000 +0100
+@@ -131,6 +131,13 @@
+ status_t Layer::setBuffers( uint32_t w, uint32_t h,
+                             PixelFormat format, uint32_t flags)
+ {
++#ifdef NO_RGBX_8888
++    bool disableBlending = false;
++    if (format == PIXEL_FORMAT_RGBX_8888) {
++        disableBlending = true;
++        format = PIXEL_FORMAT_RGBA_8888;
++    }
++#endif
+     // this surfaces pixel format
+     PixelFormatInfo info;
+     status_t err = getPixelFormatInfo(format, &info);
+@@ -160,8 +167,11 @@
+     mReqHeight = h;
+ 
+     mSecure = (flags & ISurfaceComposer::eSecure) ? true : false;
++#ifdef NO_RGBX_8888
++    mNeedsBlending = (info.h_alpha - info.l_alpha) > 0 && !disableBlending;
++#else
+     mNeedsBlending = (info.h_alpha - info.l_alpha) > 0;
+-
++#endif
+     // we use the red index
+     int displayRedSize = displayInfo.getSize(PixelFormatInfo::INDEX_RED);
+     int layerRedsize = info.getSize(PixelFormatInfo::INDEX_RED);
+--- frameworks/base/services/surfaceflinger/LayerDim.cpp~	2011-11-11 16:09:28.000000000 +0100
++++ frameworks/base/services/surfaceflinger/LayerDim.cpp	2011-11-11 16:10:35.000000000 +0100
+@@ -51,6 +51,40 @@
+     sWidth = w;
+     sHeight = h;
+     sUseTexture = false;
++#ifdef AVOID_DRAW_TEXTURE
++    if(LIKELY(GLExtensions::getInstance().haveDirectTexture())){
++        sp<GraphicBuffer> buffer = new GraphicBuffer(w, h, PIXEL_FORMAT_RGB_565,
++                 GraphicBuffer::USAGE_SW_WRITE_OFTEN |
++                 GraphicBuffer::USAGE_HW_TEXTURE);
++        android_native_buffer_t* clientBuf = buffer->getNativeBuffer();
++
++        glGenTextures(1, &sTexId);
++        glBindTexture(GL_TEXTURE_2D, sTexId);
++
++        EGLDisplay dpy = eglGetCurrentDisplay();
++        sImage = eglCreateImageKHR(dpy, EGL_NO_CONTEXT,
++                EGL_NATIVE_BUFFER_ANDROID, (EGLClientBuffer)clientBuf, 0);
++        if (sImage == EGL_NO_IMAGE_KHR) {
++            LOGE("eglCreateImageKHR() failed. err=0x%4x", eglGetError());
++            return;
++        }
++
++        glEGLImageTargetTexture2DOES(GL_TEXTURE_2D, (GLeglImageOES)sImage);
++        GLint error = glGetError();
++        if (error != GL_NO_ERROR) {
++            eglDestroyImageKHR(dpy, sImage);
++            LOGE("glEGLImageTargetTexture2DOES() failed. err=0x%4x", error);
++            return;
++        }
++
++        // initialize the texture with zeros
++        GGLSurface t;
++        buffer->lock(&t, GRALLOC_USAGE_SW_WRITE_OFTEN);
++        memset(t.data, 0, t.stride * t.height * 2);
++        buffer->unlock();
++        sUseTexture = true;
++    }
++#endif
+ }
+ 
+ LayerDim::~LayerDim()
+@@ -76,7 +110,28 @@
+             glDisable(GL_TEXTURE_EXTERNAL_OES);
+         }
+ #endif
++#ifdef AVOID_DRAW_TEXTURE
++        if (!sUseTexture) {
++            glDisable(GL_TEXTURE_2D);
++        }
++        else{
++            glBindTexture(GL_TEXTURE_2D, sTexId);
++            glEnable(GL_TEXTURE_2D);
++            glTexEnvx(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE);
++            const GLshort texCoords[4][2] = {
++                  { 0,  0 },
++                  { 0,  1 },
++                  { 1,  1 },
++                  { 1,  0 }
++            };
++            glMatrixMode(GL_TEXTURE);
++            glLoadIdentity();
++            glEnableClientState(GL_TEXTURE_COORD_ARRAY);
++            glTexCoordPointer(2, GL_SHORT, 0, texCoords);
++        }
++#else
+         glDisable(GL_TEXTURE_2D);
++#endif
+ 
+         GLshort w = sWidth;
+         GLshort h = sHeight;
+--- frameworks/base/services/surfaceflinger/LayerBlur.cpp~	2011-11-11 16:09:36.000000000 +0100
++++ frameworks/base/services/surfaceflinger/LayerBlur.cpp	2011-11-11 16:10:35.000000000 +0100
+@@ -227,20 +227,39 @@
+         glTexParameterx(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+         glTexParameterx(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+ 
+-        glMatrixMode(GL_TEXTURE);
+-        glLoadIdentity();
+-        glScalef(mWidthScale, mHeightScale, 1);
+-        glTranslatef(-x, mYOffset - y, 0);
+-        glEnableClientState(GL_TEXTURE_COORD_ARRAY);
+-        glVertexPointer(2, GL_FLOAT, 0, mVertices);
+-        glTexCoordPointer(2, GL_FLOAT, 0, mVertices);
+-        while (it != end) {
+-            const Rect& r = *it++;
+-            const GLint sy = fbHeight - (r.top + r.height());
+-            glScissor(r.left, sy, r.width(), r.height());
+-            glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
++#ifdef AVOID_DRAW_TEXTURE
++        if(UNLIKELY(transformed()))
++#endif
++        {
++            glMatrixMode(GL_TEXTURE);
++            glLoadIdentity();
++            glScalef(mWidthScale, mHeightScale, 1);
++            glTranslatef(-x, mYOffset - y, 0);
++            glEnableClientState(GL_TEXTURE_COORD_ARRAY);
++            glVertexPointer(2, GL_FLOAT, 0, mVertices);
++            glTexCoordPointer(2, GL_FLOAT, 0, mVertices);
++            while (it != end) {
++                const Rect& r = *it++;
++                const GLint sy = fbHeight - (r.top + r.height());
++                glScissor(r.left, sy, r.width(), r.height());
++                glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
++            }
++            glDisableClientState(GL_TEXTURE_COORD_ARRAY);
++        }
++#ifdef AVOID_DRAW_TEXTURE
++        else {
++            Rect r;
++            GLint crop[4] = { 0, 0, w, h };
++            glTexParameteriv(GL_TEXTURE_2D, GL_TEXTURE_CROP_RECT_OES, crop);
++            y = fbHeight - (y + h);
++            while (it != end) {
++                const Rect& r = *it++;
++                const GLint sy = fbHeight - (r.top + r.height());
++                glScissor(r.left, sy, r.width(), r.height());
++                glDrawTexiOES(x, y, 0, w, h);
++            }
+         }
+-        glDisableClientState(GL_TEXTURE_COORD_ARRAY);
++#endif
+         glLoadIdentity();
+         glMatrixMode(GL_MODELVIEW);
+     }
+--- frameworks/base/services/surfaceflinger/LayerBase.h~	2011-11-11 16:09:47.000000000 +0100
++++ frameworks/base/services/surfaceflinger/LayerBase.h	2011-11-11 16:10:35.000000000 +0100
+@@ -196,6 +196,13 @@
+      */
+     virtual bool isSecure() const       { return false; }
+ 
++#ifdef AVOID_DRAW_TEXTURE
++    /**
++     * transformed -- true is this surface needs a to be transformed
++     */
++    virtual bool transformed() const    { return mTransformed; }
++#endif
++
+     /** called with the state lock when the surface is removed from the
+      *  current list */
+     virtual void onRemoved() { };
+@@ -258,7 +265,10 @@
+ 
+                 // atomic
+     volatile    int32_t         mInvalidate;
+-                
++
++#ifdef AVOID_DRAW_TEXTURE
++                bool            mTransformed;
++#endif
+ 
+ public:
+     // called from class SurfaceFlinger
+--- frameworks/base/services/surfaceflinger/LayerBase.cpp~	2011-11-11 16:09:56.000000000 +0100
++++ frameworks/base/services/surfaceflinger/LayerBase.cpp	2011-11-11 16:10:35.000000000 +0100
+@@ -51,6 +51,9 @@
+       mTransactionFlags(0),
+       mPremultipliedAlpha(true), mName("unnamed"), mDebug(false),
+       mInvalidate(0)
++#ifdef AVOID_DRAW_TEXTURE
++      ,mTransformed(false)
++#endif
+ {
+     const DisplayHardware& hw(flinger->graphicPlane(0).displayHardware());
+     mFlags = hw.getFlags();
+@@ -257,6 +260,9 @@
+     // cache a few things...
+     mOrientation = tr.getOrientation();
+     mTransformedBounds = tr.makeBounds(w, h);
++#ifdef AVOID_DRAW_TEXTURE
++    mTransformed = transformed;
++#endif
+     mLeft = tr.tx();
+     mTop  = tr.ty();
+ }
+--- frameworks/base/services/surfaceflinger/SurfaceFlinger.cpp~	2011-11-11 16:10:04.000000000 +0100
++++ frameworks/base/services/surfaceflinger/SurfaceFlinger.cpp	2011-11-11 16:10:35.000000000 +0100
+@@ -1239,6 +1239,10 @@
+             params->width = w;
+             params->height = h;
+             params->format = format;
++#ifdef NO_RGBX_8888
++            if (params->format == PIXEL_FORMAT_RGBX_8888)
++                params->format = PIXEL_FORMAT_RGBA_8888;
++#endif
+             if (normalLayer != 0) {
+                 Mutex::Autolock _l(mStateLock);
+                 mLayerMap.add(surfaceHandle->asBinder(), normalLayer);
+@@ -1263,7 +1267,7 @@
+         format = PIXEL_FORMAT_RGBA_8888;
+         break;
+     case PIXEL_FORMAT_OPAQUE:
+-#ifdef NO_RGBX_8888
++#ifdef USE_16BPPSURFACE_FOR_OPAQUE
+         format = PIXEL_FORMAT_RGB_565;
+ #else
+         format = PIXEL_FORMAT_RGBX_8888;
+@@ -1667,8 +1671,10 @@
+ {
+     status_t result = PERMISSION_DENIED;
+ 
++#ifndef HAS_LIMITED_EGL
+     if (!GLExtensions::getInstance().haveFramebufferObject())
+         return INVALID_OPERATION;
++#endif
+ 
+     // get screen geometry
+     const DisplayHardware& hw(graphicPlane(0).displayHardware());
+@@ -1810,9 +1816,10 @@
+ {
+     status_t result = PERMISSION_DENIED;
+ 
++#ifndef HAS_LIMITED_EGL
+     if (!GLExtensions::getInstance().haveFramebufferObject())
+         return INVALID_OPERATION;
+-
++#endif
+ 
+     // get screen geometry
+     const DisplayHardware& hw(graphicPlane(0).displayHardware());
+--- frameworks/base/libs/surfaceflinger_client/SurfaceComposerClient.cpp~	2011-11-11 16:10:09.000000000 +0100
++++ frameworks/base/libs/surfaceflinger_client/SurfaceComposerClient.cpp	2011-11-11 16:10:35.000000000 +0100
+@@ -305,7 +305,7 @@
+         sp<ISurface> surface = mClient->createSurface(&data, pid, name,
+                 display, w, h, format, flags);
+         if (surface != 0) {
+-            result = new SurfaceControl(this, surface, data, w, h, format, flags);
++            result = new SurfaceControl(this, surface, data, w, h, data.format, flags);
+         }
+     }
+     return result;

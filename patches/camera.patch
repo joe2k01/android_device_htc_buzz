@@ -1,0 +1,45 @@
+--- frameworks/base/services/camera/libcameraservice/Android.mk~	2011-07-08 23:02:39.000000000 +0200
++++ frameworks/base/services/camera/libcameraservice/Android.mk	2011-07-10 11:18:10.000000000 +0200
+@@ -63,4 +63,8 @@
+ LOCAL_SHARED_LIBRARIES += libcamera 
+ endif
+ 
++ifeq ($(BOARD_USE_FROYO_LIBCAMERA), true)
++LOCAL_CFLAGS += -DBOARD_USE_FROYO_LIBCAMERA
++endif
++
+ include $(BUILD_SHARED_LIBRARY)
+--- frameworks/base/services/camera/libcameraservice/CameraService.cpp~	2011-07-08 23:02:39.000000000 +0200
++++ frameworks/base/services/camera/libcameraservice/CameraService.cpp	2011-07-10 11:28:13.000000000 +0200
+@@ -1292,4 +1292,31 @@
+     return NO_ERROR;
+ }
+ 
++#ifdef BOARD_USE_FROYO_LIBCAMERA
++static CameraInfo sCameraInfo[] = {
++{
++    CAMERA_FACING_BACK,
++    90,  /* orientation */
++}
++};
++
++extern "C" int HAL_getNumberOfCameras()
++{
++    return sizeof(sCameraInfo) / sizeof(sCameraInfo[0]);
++}
++
++extern "C" void HAL_getCameraInfo(int cameraId, struct CameraInfo* cameraInfo)
++{
++    memcpy(cameraInfo, &sCameraInfo[cameraId], sizeof(CameraInfo));
++}
++
++extern "C" sp<CameraHardwareInterface> openCameraHardware(int cameraId);
++
++extern "C" sp<CameraHardwareInterface> HAL_openCameraHardware(int cameraId)
++{
++    LOGV("openCameraHardware: call createInstance");
++    return openCameraHardware(cameraId);
++}
++#endif
++
+ }; // namespace android

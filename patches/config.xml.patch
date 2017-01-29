@@ -1,0 +1,29 @@
+--- device/htc/buzz/overlay/frameworks/base/core/res/res/values/config.xml~	2011-11-11 14:48:36.000000000 +0100
++++ device/htc/buzz/overlay/frameworks/base/core/res/res/values/config.xml	2011-11-11 14:49:28.000000000 +0100
+@@ -74,9 +74,6 @@
+          Setting it to false enables the electron beam -->
+     <bool name="config_animateScreenLights">false</bool>
+ 
+-    <!-- Enable the screen-off animation -->
+-    <bool name="config_enableScreenOffAnimation">false</bool>
+-
+     <!-- Indicate whether the SD card is accessible without removing the battery. -->
+     <bool name="config_batterySdCardAccessibility">true</bool>
+ 
+@@ -161,16 +161,4 @@
+ 
+     <!-- Component name of the service providing geocoder API support. -->
+     <string name="config_geocodeProvider">com.google.android.location.GeocodeProvider</string>
+-
+-    <!-- Configure rotary bottom margin -->
+-    <integer name="config_rotaryMarginBottomDIP">0</integer>
+-
+-    <!-- Configure lense unlock time label offset -->
+-    <integer name="config_lenseTimeLabelOffsetDIP">40</integer>
+-
+-    <!-- Configure ring lockscreen bottom margin -->
+-    <integer name="config_ringBaselineBottomDIP">110</integer>
+-
+-    <!-- Configure ring lockscreen center ring offset -->
+-    <integer name="config_ringCenterOffsetDIP">14</integer>
+ </resources>

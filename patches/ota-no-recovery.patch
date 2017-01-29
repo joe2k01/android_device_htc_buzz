@@ -1,0 +1,10 @@
+--- build/tools/releasetools/ota_from_target_files~	2011-07-08 23:02:18.000000000 +0200
++++ build/tools/releasetools/ota_from_target_files	2011-07-14 00:19:11.000000000 +0200
+@@ -385,7 +385,6 @@
+       os.path.join(OPTIONS.input_tmp, "BOOT")))
+   recovery_img = common.File("recovery.img", common.BuildBootableImage(
+       os.path.join(OPTIONS.input_tmp, "RECOVERY")))
+-  MakeRecoveryPatch(output_zip, recovery_img, boot_img)
+ 
+   Item.GetMetadata(input_zip)
+   Item.Get("system").SetPermissions(script)
