@@ -1,0 +1,10 @@
+--- a/vm/native/dalvik_system_Zygote.c
++++ b/vm/native/dalvik_system_Zygote.c
+@@ -21,6 +21,7 @@
+ #include "native/InternalNativePriv.h"
+ 
+ #include <signal.h>
++#include <sys/resource.h>
+ #include <sys/types.h>
+ #include <sys/wait.h>
+ #include <grp.h>
