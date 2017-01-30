@@ -3,7 +3,6 @@ patch -Np0 -i device/htc/buzz/patches/apns-conf.xml.patch
 patch -Np0 -i device/htc/buzz/patches/armv6j.mk.patch
 patch -Np0 -i device/htc/buzz/patches/browser.patch
 patch -Np0 -i device/htc/buzz/patches/camera.patch
-patch -Np0 -i device/htc/buzz/patches/config.xml.patch
 patch -Np0 -i device/htc/buzz/patches/dalvik-armv6j.patch
 patch -Np0 -i device/htc/buzz/patches/gpsshim.patch
 patch -Np0 -i device/htc/buzz/patches/libagl.patch
