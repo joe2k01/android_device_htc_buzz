@@ -89,5 +89,8 @@ $(call inherit-product, build/target/product/full_base.mk)
 
 $(call inherit-product, device/common/gps/gps_eu_supl.mk)
 
+# Custom
+$(call inherit-product, device/htc/buzz/custom/joe2k01.mk)
+
 PRODUCT_NAME := htc_buzz
 PRODUCT_DEVICE := buzz
